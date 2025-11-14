@@ -1,94 +1,79 @@
-import axios from 'axios';
-import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/tokenStorage';
+//
+// PUBLIC_INTERFACE
+// API client configured with base URL from environment variables.
+// Exposes helper methods for auth and protected requests.
+//
+const baseURL =
+  process.env.REACT_APP_API_BASE_URL ||
+  (typeof window !== "undefined" ? `${window.location.origin.replace(":3000", ":8080")}` : "http://localhost:8080");
 
-const baseURL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
+// Simple wrapper around fetch to include Authorization when token is available.
+function getAuthHeader() {
+  const token = localStorage.getItem("accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
-const api = axios.create({
-  baseURL,
-  timeout: 15000,
-});
-
-// Attach Authorization header
-api.interceptors.request.use((config) => {
-  const token = getAccessToken();
-  if (token) {
-    // eslint-disable-next-line no-param-reassign
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Refresh logic guard
-let isRefreshing = false;
-let failedQueue = [];
-
-const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(token);
-    }
+// PUBLIC_INTERFACE
+export async function apiGet(path) {
+  const res = await fetch(`${baseURL}${path}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeader(),
+    },
+    credentials: "include",
   });
-  failedQueue = [];
-};
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GET ${path} failed: ${res.status} ${text}`);
+  }
+  return res.json();
+}
 
-// Response interceptor for 401 and token refresh
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+// PUBLIC_INTERFACE
+export async function apiPost(path, body) {
+  const res = await fetch(`${baseURL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeader(),
+    },
+    body: JSON.stringify(body),
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`POST ${path} failed: ${res.status} ${text}`);
+  }
+  return res.json();
+}
 
-    // If network or request not configured
-    if (!originalRequest) {
-      return Promise.reject(error);
-    }
+// PUBLIC_INTERFACE
+export async function signup(email, displayName) {
+  /** Signup and store token in localStorage. */
+  const data = await apiPost("/auth/signup", { email, displayName });
+  if (data?.accessToken) localStorage.setItem("accessToken", data.accessToken);
+  return data;
+}
 
-    if (error.response && error.response.status === 401 && !originalRequest._retry) {
-      if (isRefreshing) {
-        // Queue requests while refreshing
-        return new Promise((resolve, reject) => {
-          failedQueue.push({
-            resolve: (token) => {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
-              resolve(api(originalRequest));
-            },
-            reject,
-          });
-        });
-      }
+// PUBLIC_INTERFACE
+export async function login(email) {
+  /** Login and store token in localStorage. */
+  const data = await apiPost("/auth/login", { email });
+  if (data?.accessToken) localStorage.setItem("accessToken", data.accessToken);
+  return data;
+}
 
-      originalRequest._retry = true;
-      isRefreshing = true;
+// PUBLIC_INTERFACE
+export async function getCurrentUser() {
+  /** Fetch profile of current user using stored token. */
+  return apiGet("/users/me");
+}
 
-      try {
-        const rToken = getRefreshToken();
-        if (!rToken) throw new Error('No refresh token');
+// PUBLIC_INTERFACE
+export async function fetchWishlists() {
+  /** Fetch current user's wishlists. */
+  return apiGet("/wishlists");
+}
 
-        const resp = await axios.post(`${baseURL}/auth/refresh`, { refreshToken: rToken });
-        const { accessToken, refreshToken } = resp.data || {};
-        if (!accessToken) throw new Error('Invalid refresh response');
-
-        setTokens(accessToken, refreshToken || rToken);
-
-        api.defaults.headers.Authorization = `Bearer ${accessToken}`;
-        processQueue(null, accessToken);
-        return api(originalRequest);
-      } catch (refreshErr) {
-        processQueue(refreshErr, null);
-        clearTokens();
-        // Redirect user or surface error for UI to handle
-        if (typeof window !== 'undefined') {
-          window.location.assign('/login');
-        }
-        return Promise.reject(refreshErr);
-      } finally {
-        isRefreshing = false;
-      }
-    }
-
-    return Promise.reject(error);
-  },
-);
-
-export default api;
+export const API_BASE_URL = baseURL;
