@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useEffect, useMemo, useState } from 'react';
-import api from '../api/client';
+import { apiGet, apiPost } from '../api/client';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/tokenStorage';
 
 // PUBLIC_INTERFACE
@@ -24,8 +24,8 @@ export function AuthProvider({ children }) {
 
   const fetchProfile = useCallback(async () => {
     try {
-      const res = await api.get('/users/me');
-      setUser(res.data);
+      const me = await apiGet('/users/me');
+      setUser(me);
     } catch (e) {
       // non-blocking
     }
@@ -47,16 +47,16 @@ export function AuthProvider({ children }) {
   }, [init]);
 
   const login = useCallback(async (email, password) => {
-    const res = await api.post('/auth/login', { email, password });
-    const { accessToken, refreshToken, user: profile } = res.data || {};
+    const data = await apiPost('/auth/login', { email, password });
+    const { accessToken, refreshToken, user: profile } = data || {};
     setTokens(accessToken, refreshToken);
     setUser(profile || null);
     return profile;
   }, []);
 
   const signup = useCallback(async (payload) => {
-    const res = await api.post('/auth/signup', payload);
-    const { accessToken, refreshToken, user: profile } = res.data || {};
+    const data = await apiPost('/auth/signup', payload);
+    const { accessToken, refreshToken, user: profile } = data || {};
     if (accessToken) {
       setTokens(accessToken, refreshToken);
     }
